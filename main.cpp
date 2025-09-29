@@ -1,5 +1,4 @@
-#include <stdio.h>
-#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 
 int main() {
