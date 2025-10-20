@@ -19,12 +19,12 @@ void TextureConverter::ConvertTextureWICToDDS(const std::string& filepath) {
 //==================================================================
 
 void TextureConverter::LoadWICTextureFromFile(const std::string& filepath) {
-
+	HRESULT hr = S_FALSE;
 	//ファイルパスをワイド文字列に変換
 	std::wstring wFilePath = ConvertMultiByteStringToWideString(filepath);
 
 	//WICテクスチャ読み込み
-	HRESULT hr = DirectX::LoadFromWICFile(
+	hr = DirectX::LoadFromWICFile(
 		wFilePath.c_str(), //ファイルパス
 		DirectX::WIC_FLAGS_NONE, //フラグ
 		&metadata_, //メタデータ
@@ -96,13 +96,57 @@ void TextureConverter::SeparateFilePath(const std::wstring& filePath) {
 }
 
 void TextureConverter::SaveDDSTextureToFile() {
+
+	HRESULT hr = S_FALSE;
+
+	//ミップマップの作成
+	DirectX::ScratchImage mipImages{};
+
+	//圧縮フォーマットかどうかの判定
+	if (DirectX::IsCompressed(scratchImage_.GetMetadata().format)) {
+		mipImages = std::move(scratchImage_); //圧縮フォーマットの場合はそのまま使う
+
+	} else if (scratchImage_.GetMetadata().width == 1 && scratchImage_.GetMetadata().height == 1) {
+		mipImages = std::move(scratchImage_); // 1x1はミップマップ不要
+
+	} else { //非圧縮フォーマットの場合はミップマップを作成
+
+		hr = DirectX::GenerateMipMaps(
+			scratchImage_.GetImages(),
+			scratchImage_.GetImageCount(),
+			scratchImage_.GetMetadata(),
+			DirectX::TEX_FILTER_SRGB,
+			0, mipImages);
+
+		if(SUCCEEDED(hr)) {
+			scratchImage_ = std::move(mipImages);
+			metadata_ = scratchImage_.GetMetadata();
+		}
+	}
+
+	//圧縮形式に変換
+	DirectX::ScratchImage convertedImage{};
+	hr = DirectX::Compress(
+		scratchImage_.GetImages(),
+		scratchImage_.GetImageCount(),
+		metadata_,
+		DXGI_FORMAT_BC7_UNORM, //圧縮フォーマット
+		DirectX::TEX_COMPRESS_BC7_QUICK | DirectX::TEX_COMPRESS_SRGB_OUT | DirectX::TEX_COMPRESS_PARALLEL, //圧縮フラグ
+		1.0f,
+		convertedImage);
+
+	if (SUCCEEDED(hr)) {
+		scratchImage_ = std::move(convertedImage);
+		metadata_ = scratchImage_.GetMetadata();
+	}
+
 	//読み込んだテクスチャをSRGBとして扱う
 	metadata_.format = DirectX::MakeSRGB(metadata_.format);
 
 	std::wstring filePath = directoryPath_ + fileName_ + L".dds";
 
 	//DDSファイル書き出し
-	HRESULT hr = DirectX::SaveToDDSFile(
+	hr = DirectX::SaveToDDSFile(
 		scratchImage_.GetImages(), //イメージ配列
 		scratchImage_.GetImageCount(), //イメージ数
 		metadata_, //メタデータ
@@ -110,4 +154,5 @@ void TextureConverter::SaveDDSTextureToFile() {
 		filePath.c_str()); //ファイルパス
 	assert(SUCCEEDED(hr));
 
+	
 }
